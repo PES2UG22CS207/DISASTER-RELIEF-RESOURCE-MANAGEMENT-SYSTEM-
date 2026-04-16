@@ -51,7 +51,7 @@ Update the database credentials in `src/main/resources/application.properties` i
 ## Run Locally
 
 ```powershell
-git clone <your-repository-url>
+git clone https://github.com/PES2UG22CS207/DISASTER-RELIEF-RESOURCE-MANAGEMENT-SYSTEM-.git
 cd relief-system
 ./mvnw.cmd spring-boot:run
 ```
