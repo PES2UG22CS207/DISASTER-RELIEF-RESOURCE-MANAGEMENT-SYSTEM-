@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar">
+    <h4 class="text-center mb-4">Inventory Panel</h4>
+    <a href="/warehouse-dashboard">Dashboard</a>
+    <a href="/inventory">Inventory</a>
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="content">
+
+    <h2 class="mb-4">Inventory Management</h2>
+
+    <div id="noWarehouseMsg" class="alert alert-warning" style="display:none;">
+        Your account is not linked to a warehouse yet.
+    </div>
+
+    <div id="managerActions" style="display:none;">
+        <div class="card card-box p-4 mb-4">
+            <h4>Add Resource Definition</h4>
+            <form id="createResourceForm">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label>Resource Name</label>
+                        <input type="text" id="newResourceName" class="form-control" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label>Category</label>
+                        <select id="newResourceCategory" class="form-control" required>
+                            <option value="FOOD">Food</option>
+                            <option value="WATER">Water</option>
+                            <option value="MEDICINE">Medicine</option>
+                            <option value="CLOTHING">Clothing</option>
+                            <option value="SHELTER">Shelter</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label>Unit</label>
+                        <input type="text" id="newResourceUnit" class="form-control" placeholder="kg / liters / packs" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label>Expiry Date</label>
+                        <input type="date" id="newResourceExpiryDate" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary w-100" type="submit">Create</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="card card-box p-4 mb-4">
+            <h4>Add Inventory Item</h4>
+            <form id="addInventoryForm">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label>Resource</label>
+                        <select id="resourceSelect" class="form-control" required></select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Quantity</label>
+                        <input type="number" id="inventoryQty" class="form-control" min="0" value="0" required>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-success w-100" type="submit">Add</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="table-box">
+        <table class="table table-bordered">
+            <thead class="table-dark">
+            <tr>
+                <th>Inventory ID</th>
+                <th>Warehouse</th>
+                <th>Resource</th>
+                <th>Category</th>
+                <th>Quantity</th>
+                <th>Alert</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+
+            <tbody id="inventoryTable"></tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+
+    let currentUser = null;
+    let currentWarehouseId = null;
+
+    function loadResources() {
+        return fetch('/api/resources')
+            .then(res => res.json())
+            .then(data => {
+                const select = document.getElementById('resourceSelect');
+                select.innerHTML = '';
+                if (!Array.isArray(data) || data.length === 0) {
+                    select.innerHTML = '<option value="">No resources found</option>';
+                    return;
+                }
+                data.forEach(r => {
+                    const option = document.createElement('option');
+                    option.value = r.resourceId;
+                    option.textContent = `${r.resourceName} (${r.category})`;
+                    select.appendChild(option);
+                });
+            });
+    }
+
+    function loadInventory() {
+        const endpoint = currentWarehouseId ? `/api/inventory/warehouse/${currentWarehouseId}` : '/api/inventory';
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+                let rows = '';
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    rows = '<tr><td colspan="7" class="text-center">No inventory items found</td></tr>';
+                } else {
+                    data.forEach(i => {
+                        const warehouseName = i.warehouse ? i.warehouse.warehouseName : '-';
+                        const resourceName = i.resource ? i.resource.resourceName : '-';
+                        const category = i.resource ? i.resource.category : '-';
+                        const lowStock = i.quantity < 10;
+                        const alertText = lowStock ? 'Low Stock' : 'OK';
+                        const alertClass = lowStock ? 'bg-danger' : 'bg-success';
+
+                        const actions = currentWarehouseId
+                            ? `
+                               <button class='btn btn-sm btn-outline-success me-1' onclick='increaseStock(${i.inventoryId})'>+100</button>
+                               <button class='btn btn-sm btn-outline-danger' onclick='decreaseStock(${i.inventoryId})'>-100</button>
+                              `
+                            : '-';
+
+                        rows += `
+                            <tr>
+                                <td>${i.inventoryId}</td>
+                                <td>${warehouseName}</td>
+                                <td>${resourceName}</td>
+                                <td>${category}</td>
+                                <td>${i.quantity}</td>
+                                <td><span class="badge ${alertClass}">${alertText}</span></td>
+                                <td>${actions}</td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                document.getElementById('inventoryTable').innerHTML = rows;
+            })
+            .catch(() => {
+                document.getElementById('inventoryTable').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error loading inventory</td></tr>';
+            });
+    }
+
+    function increaseStock(inventoryId) {
+        fetch(`/api/inventory/increase/${inventoryId}/100`, {method: 'POST'})
+            .then(() => loadInventory());
+    }
+
+    function decreaseStock(inventoryId) {
+        fetch(`/api/inventory/decrease/${inventoryId}/100`, {method: 'POST'})
+            .then(() => loadInventory());
+    }
+
+    document.getElementById('createResourceForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const expiryDate = document.getElementById('newResourceExpiryDate').value;
+        fetch('/api/resources', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                resourceName: document.getElementById('newResourceName').value,
+                category: document.getElementById('newResourceCategory').value,
+                unit: document.getElementById('newResourceUnit').value,
+                expiryDate: expiryDate ? expiryDate : null
+            })
+        })
+        .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+        .then(() => loadResources())
+        .catch(err => alert('Unable to create resource: ' + err.message));
+    });
+
+    document.getElementById('addInventoryForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!currentWarehouseId) {
+            alert('No warehouse linked');
+            return;
+        }
+
+        fetch('/api/inventory', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                warehouse: {warehouseId: currentWarehouseId},
+                resource: {resourceId: parseInt(document.getElementById('resourceSelect').value)},
+                quantity: parseInt(document.getElementById('inventoryQty').value)
+            })
+        })
+        .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+        .then(() => loadInventory())
+        .catch(err => alert('Unable to add inventory: ' + err.message));
+    });
+
+    fetch('/api/auth/current-user')
+        .then(res => res.json())
+        .then(user => {
+            currentUser = user;
+            if (user && user.role === 'WAREHOUSE_MANAGER' && user.warehouseId) {
+                currentWarehouseId = user.warehouseId;
+                document.getElementById('managerActions').style.display = 'block';
+            } else if (user && user.role === 'WAREHOUSE_MANAGER') {
+                document.getElementById('noWarehouseMsg').style.display = 'block';
+            }
+
+            return loadResources();
+        })
+        .then(() => loadInventory())
+        .catch(() => {
+            loadInventory();
+        });
+
+</script>
+
+</body>
+</html>

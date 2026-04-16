@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <title>Requests</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar" id="sidebarNav">
+</div>
+
+<div class="content">
+  <h2 class="mb-4" id="pageTitle">Resource Requests</h2>
+
+  <div id="requestContent" class="table-box">
+    <table class="table table-bordered">
+      <thead class="table-dark">
+      <tr id="requestHeaderRow">
+        <th>Request ID</th>
+        <th>Camp ID</th>
+        <th>Request Date</th>
+        <th>Resource</th>
+        <th>Quantity</th>
+        <th>Status</th>
+        <th>Priority</th>
+        <th>Allocated Warehouse</th>
+        <th>Delivery Status</th>
+        <th id="requestActionsHeader">Actions</th>
+      </tr>
+      </thead>
+
+      <tbody id="requestTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  let currentUser = null;
+
+  function buildSidebar(role) {
+    if (role === 'ADMIN') {
+      return `
+        <h4 class="text-center mb-4">Admin Panel</h4>
+        <a href="/admin-dashboard">Dashboard</a>
+        <a href="/users">Users</a>
+        <a href="/camp-page">Camps</a>
+        <a href="/requests" style="background-color: #007bff; color: white;">Requests</a>
+        <a href="/resources">Resources</a>
+        <a href="/warehouses">Warehouses</a>
+        <a href="/inventory">Inventory</a>
+        <a href="/deliveries">Deliveries</a>
+        <a href="/reports">Reports</a>
+        <a href="/logout">Logout</a>
+      `;
+    }
+
+    if (role === 'CAMP_MANAGER') {
+      return `
+        <h4 class="text-center mb-4">Camp Manager Panel</h4>
+        <a href="/camp-dashboard">Dashboard</a>
+        <a href="/camp-dashboard">My Camp</a>
+        <a href="/requests" style="background-color: #007bff; color: white;">Requests</a>
+        <a href="/logout">Logout</a>
+      `;
+    }
+
+    return `
+      <h4 class="text-center mb-4">Requests</h4>
+      <a href="/logout">Logout</a>
+    `;
+  }
+
+  function renderRequestRow(request, showActions, allocationMap, deliveryMap, nearestByCamp) {
+    const campId = request.reliefCamp ? request.reliefCamp.campId : 'N/A';
+    const allocation = allocationMap.get(request.requestId);
+    const delivery = deliveryMap.get(request.requestId);
+    const nearestFallback = nearestByCamp && request.reliefCamp && nearestByCamp.get(request.reliefCamp.campId)
+      ? nearestByCamp.get(request.reliefCamp.campId)
+      : '-';
+    const warehouseName = allocation && allocation.warehouse ? allocation.warehouse.warehouseName : nearestFallback;
+    const deliveryStatus = delivery ? delivery.status : '-';
+    const actionButtons = showActions ?
+      `<button class='btn btn-success btn-sm me-1' onclick='approveReq(${request.requestId})'>Approve</button>
+       <button class='btn btn-danger btn-sm' onclick='rejectReq(${request.requestId})'>Reject</button>` :
+      'No actions';
+
+    return `
+      <tr>
+        <td>${request.requestId}</td>
+        <td>${campId}</td>
+        <td>${request.requestDate}</td>
+        <td>${request.resourceType || '-'}</td>
+        <td>${request.quantity || '-'}</td>
+        <td><span class="badge bg-secondary">${request.status}</span></td>
+        <td>${request.priorityLevel}</td>
+        <td>${warehouseName}</td>
+        <td>${deliveryStatus}</td>
+        <td>${actionButtons}</td>
+      </tr>`;
+  }
+
+  function loadRequests() {
+    const endpoint = currentUser.role === 'CAMP_MANAGER'
+      ? `/api/requests/manager/${currentUser.userId}`
+      : '/api/requests';
+
+    Promise.all([
+      fetch(endpoint).then(r => r.json()),
+      fetch('/api/allocations').then(r => r.json()).catch(() => []),
+      fetch('/api/deliveries').then(r => r.json()).catch(() => [])
+    ])
+    .then(([requests, allocations, deliveries]) => {
+      if (!Array.isArray(requests) || requests.length === 0) {
+        document.getElementById('requestTable').innerHTML = '<tr><td colspan="10" class="text-center">No requests found</td></tr>';
+        return;
+      }
+
+      const allocationMap = new Map();
+      (allocations || []).forEach(a => {
+        if (a && a.request && a.request.requestId) {
+          allocationMap.set(a.request.requestId, a);
+        }
+      });
+
+      const deliveryMap = new Map();
+      (deliveries || []).forEach(d => {
+        const reqId = d && d.allocation && d.allocation.request && d.allocation.request.requestId;
+        if (reqId) {
+          deliveryMap.set(reqId, d);
+        }
+      });
+
+      const campIds = [...new Set((requests || [])
+        .map(r => r && r.reliefCamp ? r.reliefCamp.campId : null)
+        .filter(id => id !== null && id !== undefined))];
+
+      const nearestPromises = campIds.map(campId =>
+        fetch('/api/allocations/nearest/' + campId)
+          .then(r => r.text())
+          .then(text => ({ campId, text }))
+          .catch(() => ({ campId, text: '-' }))
+      );
+
+      Promise.all(nearestPromises).then(nearestResults => {
+        const nearestByCamp = new Map();
+        nearestResults.forEach(item => nearestByCamp.set(item.campId, item.text || '-'));
+
+        const rows = requests
+          .map(req => renderRequestRow(req, currentUser.role === 'ADMIN', allocationMap, deliveryMap, nearestByCamp))
+          .join('');
+        document.getElementById('requestTable').innerHTML = rows;
+      });
+    })
+    .catch(() => {
+      document.getElementById('requestTable').innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error loading requests</td></tr>';
+    });
+  }
+
+  function approveReq(id) {
+    fetch('/api/requests/approve/' + id, {method: 'POST'})
+      .then(res => {
+        if (res.ok) {
+          alert('Request approved and allocated successfully!');
+          loadRequests();
+        } else {
+          return res.text().then(text => {
+            if (res.status === 409 && text.startsWith('LOW_STOCK_NEAREST|')) {
+              const prompt = text.replace('LOW_STOCK_NEAREST|', '');
+              const approveAlternative = confirm(prompt + '\n\nPress OK to allocate from another warehouse, or Cancel to keep request pending.');
+              if (approveAlternative) {
+                approveReqWithAlternative(id);
+              } else {
+                alert('Request remains pending due to low stock in nearest warehouse.');
+              }
+              return;
+            }
+
+            if (res.status === 409 && text.startsWith('NO_STOCK_ANY|')) {
+              alert(text.replace('NO_STOCK_ANY|', ''));
+              loadRequests();
+              return;
+            }
+
+            alert('Approval failed: ' + text);
+          });
+        }
+      })
+      .catch(err => {
+        alert('Error approving request: ' + err.message);
+      });
+  }
+
+  function approveReqWithAlternative(id) {
+    fetch('/api/requests/approve/' + id + '?allowAlternativeWarehouse=true', {method: 'POST'})
+      .then(res => {
+        if (res.ok) {
+          alert('Request approved and allocated from an alternative warehouse.');
+          loadRequests();
+        } else {
+          return res.text().then(text => {
+            if (res.status === 409 && text.startsWith('NO_STOCK_ANY|')) {
+              alert(text.replace('NO_STOCK_ANY|', ''));
+              loadRequests();
+              return;
+            }
+            alert('Alternative allocation failed: ' + text);
+          });
+        }
+      })
+      .catch(err => {
+        alert('Error in alternative allocation: ' + err.message);
+      });
+  }
+
+  function rejectReq(id) {
+    fetch('/api/requests/reject/' + id, {method: 'POST'})
+      .then(res => {
+        if (res.ok) {
+          alert('Request rejected successfully!');
+          loadRequests();
+        } else {
+          return res.text().then(text => {
+            alert('Rejection failed: ' + text);
+          });
+        }
+      })
+      .catch(err => {
+        alert('Error rejecting request: ' + err.message);
+      });
+  }
+
+  fetch('/api/auth/current-user')
+    .then(res => res.json())
+    .then(user => {
+      currentUser = user;
+      if (!user || !user.role) {
+        document.getElementById('requestContent').innerHTML = '<div class="alert alert-warning">Please login to view requests.</div>';
+        return;
+      }
+
+      document.getElementById('sidebarNav').innerHTML = buildSidebar(user.role);
+      document.getElementById('pageTitle').innerText = user.role === 'CAMP_MANAGER' ? 'My Requests' : 'Resource Requests';
+
+      loadRequests();
+    });
+</script>
+
+</body>
+</html>

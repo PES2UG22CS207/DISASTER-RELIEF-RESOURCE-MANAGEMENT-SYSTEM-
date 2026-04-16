@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Admin Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar">
+    <h4 class="text-center mb-4">Admin Panel</h4>
+
+    <a href="/admin-dashboard">Dashboard</a>
+    <a href="/users">Users</a>
+    <a href="/camp-page">Camps</a>
+    <a href="/requests">Requests</a>
+    <a href="/resources">Resources</a>
+    <a href="/warehouses">Warehouses</a>
+    <a href="/inventory">Inventory</a>
+    <a href="/deliveries">Deliveries</a>
+    <a href="/reports">Reports</a>
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="content">
+
+    <h2 class="mb-4">Admin Dashboard</h2>
+
+    <div class="row g-4">
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Total Admins</h5>
+                <h2 id="adminCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Total Users</h5>
+                <h2 id="userCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Total Camps</h5>
+                <h2 id="campCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Total Requests</h5>
+                <h2 id="requestCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Total Deliveries</h5>
+                <h2 id="deliveryCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Pending Requests</h5>
+                <h2 id="pendingRequestCount">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card card-box p-4">
+                <h5>Running Deliveries</h5>
+                <h2 id="runningDeliveryCount">0</h2>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="table-box mt-5">
+        <h4>System Overview</h4>
+        <p class="text-muted">Monitor disaster relief operations, camps, resources and deliveries.</p>
+    </div>
+
+    <div class="table-box mt-4">
+        <h4>Low Stock Alerts (Qty &lt; 10)</h4>
+        <div class="table-responsive">
+            <table class="table table-bordered mb-0">
+                <thead class="table-dark">
+                <tr>
+                    <th>Warehouse</th>
+                    <th>Resource</th>
+                    <th>Category</th>
+                    <th>Quantity</th>
+                </tr>
+                </thead>
+                <tbody id="lowStockTable"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    fetch('/api/admin/count')
+        .then(res=>res.text())
+        .then(count=>{
+            document.getElementById("adminCount").innerText=count;
+        })
+        .catch(() => {});
+
+    fetch('/api/users')
+    .then(res=>res.json())
+    .then(data=>{
+        document.getElementById("userCount").innerText=data.length;
+    });
+
+    fetch('/api/requests')
+    .then(res=>res.json())
+    .then(data=>{
+        document.getElementById("requestCount").innerText=data.length;
+
+        const pending = data.filter(r => r.status === 'PENDING').length;
+        document.getElementById("pendingRequestCount").innerText = pending;
+    });
+
+    fetch('/api/camps')
+    .then(res=>res.json())
+    .then(data=>{
+        document.getElementById("campCount").innerText=data.length;
+    });
+
+    fetch('/api/deliveries')
+    .then(res=>res.json())
+    .then(data=>{
+        document.getElementById("deliveryCount").innerText=data.length;
+
+        const running = data.filter(d => d.status !== 'DELIVERED').length;
+        document.getElementById("runningDeliveryCount").innerText = running;
+    });
+
+    fetch('/api/inventory/low-stock')
+        .then(res => res.json())
+        .then(items => {
+            if (!Array.isArray(items) || items.length === 0) {
+                document.getElementById('lowStockTable').innerHTML = '<tr><td colspan="4" class="text-center">No low stock items</td></tr>';
+                return;
+            }
+
+            const rows = items.map(i => {
+                const warehouseName = i.warehouse ? i.warehouse.warehouseName : '-';
+                const resourceName = i.resource ? i.resource.resourceName : '-';
+                const category = i.resource ? i.resource.category : '-';
+                return `
+                    <tr>
+                        <td>${warehouseName}</td>
+                        <td>${resourceName}</td>
+                        <td>${category}</td>
+                        <td><span class="badge bg-danger">${i.quantity}</span></td>
+                    </tr>
+                `;
+            }).join('');
+
+            document.getElementById('lowStockTable').innerHTML = rows;
+        })
+        .catch(() => {
+            document.getElementById('lowStockTable').innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error loading low stock</td></tr>';
+        });
+
+</script>
+
+</body>
+</html>

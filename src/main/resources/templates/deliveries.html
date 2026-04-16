@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Deliveries</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar" id="sidebarNav"></div>
+
+<div class="content">
+
+    <h2 class="mb-4" id="pageTitle">Deliveries</h2>
+
+    <div class="table-box">
+
+        <table class="table table-bordered">
+            <thead class="table-dark">
+            <tr>
+                <th>Delivery ID</th>
+                <th>Request ID</th>
+                <th>Vehicle Number</th>
+                <th>Driver Name</th>
+                <th>Destination District</th>
+                <th>Status</th>
+                <th>Dispatch Date</th>
+                <th>Delivered Date</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+
+            <tbody id="deliveryTable"></tbody>
+        </table>
+
+    </div>
+
+</div>
+
+<script>
+
+    let currentUser = null;
+    const view = new URLSearchParams(window.location.search).get('view') || 'all';
+
+    function linkStyle(active) {
+        return active ? 'style="background-color: #007bff; color: white;"' : '';
+    }
+
+    function buildSidebar(role) {
+        if (role === 'ADMIN') {
+            return `
+                <h4 class="text-center mb-4">Admin Panel</h4>
+                <a href="/admin-dashboard">Dashboard</a>
+                <a href="/users">Users</a>
+                <a href="/camp-page">Camps</a>
+                <a href="/requests">Requests</a>
+                <a href="/resources">Resources</a>
+                <a href="/warehouses">Warehouses</a>
+                <a href="/inventory">Inventory</a>
+                <a href="/deliveries" ${linkStyle(true)}>Deliveries</a>
+                <a href="/reports">Reports</a>
+                <a href="/logout">Logout</a>
+            `;
+        }
+
+        if (role === 'LOGISTICS_OFFICER') {
+            return `
+                <h4 class="text-center mb-4">Logistics Panel</h4>
+                <a href="/logistics-dashboard">Dashboard</a>
+                <a href="/allocations">Approved Allocations</a>
+                <a href="/allocations">Create Delivery Order</a>
+                <a href="/deliveries?view=active" ${linkStyle(view === 'active')}>Update Delivery Status</a>
+                <a href="/deliveries?view=track" ${linkStyle(view === 'track')}>Track Deliveries</a>
+                <a href="/deliveries?view=history" ${linkStyle(view === 'history')}>Delivery History</a>
+                <a href="/logout">Logout</a>
+            `;
+        }
+
+        return `
+            <h4 class="text-center mb-4">Deliveries</h4>
+            <a href="/logout">Logout</a>
+        `;
+    }
+
+    function resolveEndpoint() {
+        if (view === 'history') return '/api/deliveries/completed';
+        if (view === 'active' || view === 'track') return '/api/deliveries/pending';
+        return '/api/deliveries';
+    }
+
+    function resolveTitle() {
+        if (view === 'history') return 'Delivery History';
+        if (view === 'active') return 'Update Delivery Status';
+        if (view === 'track') return 'Track Deliveries';
+        return 'Deliveries';
+    }
+
+    function loadDeliveries() {
+        const endpoint = resolveEndpoint();
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+
+                let rows = '';
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    rows = '<tr><td colspan="9" class="text-center">No deliveries found</td></tr>';
+                } else {
+                    data.forEach(d => {
+                        let statusBadge = 'bg-secondary';
+                        if (d.status === 'PREPARING') statusBadge = 'bg-info';
+                        if (d.status === 'IN_TRANSIT') statusBadge = 'bg-warning text-dark';
+                        if (d.status === 'DELIVERED') statusBadge = 'bg-success';
+
+                        const reqId = d && d.allocation && d.allocation.request ? d.allocation.request.requestId : '-';
+
+                        let action = '-';
+                        if (currentUser && (currentUser.role === 'LOGISTICS_OFFICER' || currentUser.role === 'ADMIN')) {
+                            if (d.status !== 'DELIVERED') {
+                                action = `
+                                    <button class='btn btn-sm btn-outline-info me-1' onclick='markPreparing(${d.deliveryId})'>Preparing</button>
+                                    <button class='btn btn-sm btn-outline-warning me-1' onclick='markTransit(${d.deliveryId})'>In Transit</button>
+                                    <button class='btn btn-sm btn-outline-success' onclick='markDelivered(${d.deliveryId})'>Delivered</button>
+                                `;
+                            }
+                        }
+
+                        rows += `
+                            <tr>
+                                <td>${d.deliveryId}</td>
+                                <td>${reqId}</td>
+                                <td>${d.vehicleNumber || '-'}</td>
+                                <td>${d.driverName || '-'}</td>
+                                <td>${d.destinationDistrict || '-'}</td>
+                                <td><span class="badge ${statusBadge}">${d.status}</span></td>
+                                <td>${d.dispatchDate || 'N/A'}</td>
+                                <td>${d.deliveredDate || 'Pending'}</td>
+                                <td>${action}</td>
+                            </tr>`;
+                    });
+                }
+
+                document.getElementById("deliveryTable").innerHTML = rows;
+
+            })
+            .catch(() => {
+                document.getElementById("deliveryTable").innerHTML = '<tr><td colspan="9" class="text-center text-danger">Error loading deliveries</td></tr>';
+            });
+    }
+
+    function markPreparing(id) {
+        fetch('/api/deliveries/preparing/' + id, {method: 'PUT'}).then(() => loadDeliveries());
+    }
+
+    function markTransit(id) {
+        fetch('/api/deliveries/transit/' + id, {method: 'PUT'}).then(() => loadDeliveries());
+    }
+
+    function markDelivered(id) {
+        fetch('/api/deliveries/' + id + '/delivered', {method: 'PUT'}).then(() => loadDeliveries());
+    }
+
+    fetch('/api/auth/current-user')
+        .then(res => res.json())
+        .then(user => {
+            currentUser = user;
+            document.getElementById('sidebarNav').innerHTML = buildSidebar(user && user.role ? user.role : '');
+            document.getElementById('pageTitle').innerText = resolveTitle();
+            loadDeliveries();
+        })
+        .catch(() => {
+            document.getElementById('pageTitle').innerText = resolveTitle();
+            loadDeliveries();
+        });
+
+    setInterval(loadDeliveries, 10000);
+
+</script>
+
+</body>
+</html>

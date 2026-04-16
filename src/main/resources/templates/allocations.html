@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Allocations</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar">
+    <h4 class="text-center mb-4">Logistics Panel</h4>
+    <a href="/logistics-dashboard">Dashboard</a>
+    <a href="/allocations" style="background-color: #007bff; color: white;">Approved Allocations</a>
+    <a href="/allocations">Create Delivery Order</a>
+    <a href="/deliveries?view=active">Update Delivery Status</a>
+    <a href="/deliveries?view=track">Track Deliveries</a>
+    <a href="/deliveries?view=history">Delivery History</a>
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="content">
+
+    <h2 class="mb-4">Resource Allocations</h2>
+
+    <div class="table-box">
+
+        <table class="table table-bordered">
+            <thead class="table-dark">
+            <tr>
+                <th>Allocation ID</th>
+                <th>Request ID</th>
+                <th>Camp</th>
+                <th>Warehouse</th>
+                <th>Resource</th>
+                <th>Quantity</th>
+                <th>Date</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+
+            <tbody id="allocationTable"></tbody>
+        </table>
+
+    </div>
+
+</div>
+
+<script>
+
+    function loadAllocations(){
+        Promise.all([
+            fetch('/api/allocations').then(res=>res.json()),
+            fetch('/api/deliveries').then(res=>res.json()).catch(() => [])
+        ])
+        .then(([allocations, deliveries])=>{
+            const deliveryByRequestId = new Map();
+            (deliveries || []).forEach(d => {
+                const reqId = d && d.allocation && d.allocation.request && d.allocation.request.requestId;
+                if (reqId) deliveryByRequestId.set(reqId, d);
+            });
+
+            let rows='';
+
+            if (!Array.isArray(allocations) || allocations.length === 0) {
+                rows = '<tr><td colspan="8" class="text-center">No allocations found</td></tr>';
+            } else {
+                allocations.forEach(a=>{
+                    const request = a.request;
+                    const camp = request && request.reliefCamp ? request.reliefCamp.name : '-';
+                    const warehouse = a.warehouse ? a.warehouse.warehouseName : '-';
+                    const resourceType = request ? request.resourceType : '-';
+                    const qty = request ? request.quantity : '-';
+                    const hasDelivery = request && deliveryByRequestId.has(request.requestId);
+
+                    const action = hasDelivery
+                        ? '<span class="badge bg-secondary">Delivery created</span>'
+                        : `<button class='btn btn-success btn-sm' onclick='createDelivery(${a.allocationId}, ${request ? request.requestId : "null"})'>Create Delivery</button>`;
+
+                    rows+=`
+                        <tr>
+                            <td>${a.allocationId}</td>
+                            <td>${request ? request.requestId : '-'}</td>
+                            <td>${camp}</td>
+                            <td>${warehouse}</td>
+                            <td>${resourceType}</td>
+                            <td>${qty}</td>
+                            <td>${a.allocationDate || '-'}</td>
+                            <td>${action}</td>
+                        </tr>`;
+                });
+            }
+
+            document.getElementById("allocationTable").innerHTML=rows;
+
+        });
+    }
+
+    function createDelivery(allocationId, requestId){
+        const vehicleNumber = prompt('Vehicle number (e.g., TRUCK-1):');
+        if (!vehicleNumber) return;
+        const driverName = prompt('Driver name:');
+        if (!driverName) return;
+
+        fetch('/api/deliveries', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+                allocation: {allocationId: allocationId},
+                vehicleNumber: vehicleNumber,
+                driverName: driverName
+            })
+        })
+        .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+        .then(()=>loadAllocations())
+        .catch(err => alert('Unable to create delivery: ' + err.message));
+    }
+
+    loadAllocations();
+
+</script>
+
+</body>
+</html>

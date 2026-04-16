@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Camp Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/style.css}" rel="stylesheet">
+</head>
+<body>
+
+<div class="sidebar">
+    <h4 class="text-center mb-4">Camp Panel</h4>
+    <a href="/camp-dashboard">Dashboard</a>
+    <a href="/camp-dashboard">My Camp</a>
+    <a href="/requests">Requests</a>
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="content">
+    <h2 class="mb-4">Camp Manager Dashboard</h2>
+
+    <div id="notManagerMessage" class="alert alert-warning" style="display:none;">
+        You must be a camp manager to use this dashboard.
+    </div>
+
+    <div id="newCampSection" style="display: none;">
+        <div class="card p-4 mb-4">
+            <h4>Create Your Camp</h4>
+            <form id="newCampForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label>Camp Name</label>
+                        <input type="text" id="campName" class="form-control" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label>District</label>
+                        <input type="text" id="district" class="form-control" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label>State</label>
+                        <input type="text" id="state" class="form-control" required>
+                    </div>
+                </div>
+                <div class="row g-3 mt-3">
+                    <div class="col-md-4">
+                        <label>Population</label>
+                        <input type="number" id="population" class="form-control" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label>Severity Level</label>
+                        <input type="number" id="severity" class="form-control" min="1" max="10" required>
+                    </div>
+                    <div class="col-md-4 align-self-end">
+                        <button type="submit" class="btn btn-primary w-100">Create Camp</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="existingCampSection" style="display: none;">
+        <div class="card card-box p-4 mb-4">
+            <h4>Your Camp Details</h4>
+            <div id="campDetails"></div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card card-box p-4 mb-4">
+                    <h5>Update Camp Population</h5>
+                    <div class="input-group mb-3">
+                        <input type="number" id="newPopulation" class="form-control" placeholder="New population">
+                        <button class="btn btn-secondary" id="updatePopulationBtn">Update</button>
+                    </div>
+                </div>
+                <div class="card card-box p-4 mb-4">
+                    <h5>Update Severity Level</h5>
+                    <div class="input-group mb-3">
+                        <input type="number" id="newSeverity" class="form-control" min="1" max="10" placeholder="1-10">
+                        <button class="btn btn-secondary" id="updateSeverityBtn">Update</button>
+                    </div>
+                </div>
+                <div class="card card-box p-4">
+                    <h5>Raise Resource Request</h5>
+                    <form id="requestForm">
+                        <div class="mb-3">
+                            <label>Resource Type</label>
+                            <select id="requestResourceType" class="form-control" required>
+                                <option value="FOOD">Food</option>
+                                <option value="WATER">Water</option>
+                                <option value="MEDICINE">Medicine</option>
+                                <option value="CLOTHING">Clothing</option>
+                                <option value="SHELTER">Shelter</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label>Quantity</label>
+                            <input type="number" id="requestQuantity" class="form-control" min="1" value="100" required>
+                        </div>
+                        <div class="mb-3">
+                            <label>Priority Level</label>
+                            <input type="number" id="requestPriority" class="form-control" min="1" max="5" value="3" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Request</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card card-box p-4 mb-4">
+                    <h5>My Requests</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Priority</th>
+                                    <th>Allocated Warehouse</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    let currentUser = null;
+    let currentCamp = null;
+
+    fetch('/api/auth/current-user')
+        .then(res => res.json())
+        .then(user => {
+            currentUser = user;
+            if (!user || user.role !== 'CAMP_MANAGER') {
+                document.getElementById('notManagerMessage').style.display = 'block';
+                return;
+            }
+
+            fetch('/api/camps/manager/' + user.userId)
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error('Cannot load camp');
+                    }
+                    return res.json();
+                })
+                .then(camp => {
+                    if (camp && camp.campId) {
+                        currentCamp = camp;
+                        showExistingCamp(camp);
+                        loadRequests(user.userId, camp.campId);
+                    } else {
+                        document.getElementById('newCampSection').style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('newCampSection').style.display = 'block';
+                });
+        });
+
+    function showExistingCamp(camp) {
+        document.getElementById('existingCampSection').style.display = 'block';
+        document.getElementById('campDetails').innerHTML = `
+            <p><strong>Name:</strong> ${camp.name}</p>
+            <p><strong>District:</strong> ${camp.district}</p>
+            <p><strong>State:</strong> ${camp.state}</p>
+            <p><strong>Population:</strong> ${camp.population}</p>
+            <p><strong>Severity Level:</strong> ${camp.severityLevel}</p>
+        `;
+    }
+
+    function loadRequests(managerId, campId) {
+        Promise.all([
+            fetch('/api/requests/manager/' + managerId).then(r => r.json()),
+            fetch('/api/allocations').then(r => r.json()).catch(() => []),
+            fetch('/api/allocations/nearest/' + campId).then(r => r.text()).catch(() => '-')
+        ])
+            .then(([requests, allocations, nearestWarehouse]) => {
+                if (!Array.isArray(requests) || requests.length === 0) {
+                    document.getElementById('requestTable').innerHTML = '<tr><td colspan="5" class="text-center">No requests found</td></tr>';
+                    return;
+                }
+
+                const allocationMap = new Map();
+                (allocations || []).forEach(a => {
+                    if (a && a.request && a.request.requestId) {
+                        allocationMap.set(a.request.requestId, a);
+                    }
+                });
+
+                let rows = '';
+                requests.forEach(req => {
+                    const allocation = allocationMap.get(req.requestId);
+                    const warehouseName = allocation && allocation.warehouse ? allocation.warehouse.warehouseName : nearestWarehouse;
+
+                    rows += `
+                        <tr>
+                            <td>${req.requestId}</td>
+                            <td>${req.requestDate}</td>
+                            <td>${req.status}</td>
+                            <td>${req.priorityLevel}</td>
+                            <td>${warehouseName}</td>
+                        </tr>
+                    `;
+                });
+
+                document.getElementById('requestTable').innerHTML = rows;
+            })
+            .catch(() => {
+                document.getElementById('requestTable').innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading requests</td></tr>';
+            });
+    }
+
+    document.getElementById('newCampForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const campData = {
+            name: document.getElementById('campName').value,
+            district: document.getElementById('district').value,
+            state: document.getElementById('state').value,
+            population: parseInt(document.getElementById('population').value),
+            severityLevel: parseInt(document.getElementById('severity').value)
+        };
+
+        fetch('/api/camps', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(campData)
+        })
+            .then(res => res.json())
+            .then(camp => {
+                return fetch(`/api/users/camp-manager/${currentUser.userId}/camp/${camp.campId}`, {
+                    method: 'PUT'
+                }).then(() => camp);
+            })
+            .then(camp => {
+                location.reload();
+            })
+            .catch(() => {
+                alert('Unable to create camp. Please try again.');
+            });
+    });
+
+    document.getElementById('updatePopulationBtn').addEventListener('click', function () {
+        const value = parseInt(document.getElementById('newPopulation').value);
+        if (!currentCamp || !value || value <= 0) {
+            alert('Enter a valid population');
+            return;
+        }
+
+        fetch(`/api/camps/population/${currentCamp.campId}/${value}`, {method: 'PUT'})
+            .then(res => {
+                if (res.ok) {
+                    location.reload();
+                }
+            });
+    });
+
+    document.getElementById('updateSeverityBtn').addEventListener('click', function () {
+        const value = parseInt(document.getElementById('newSeverity').value);
+        if (!currentCamp || !value || value < 1 || value > 10) {
+            alert('Enter a severity between 1 and 10');
+            return;
+        }
+
+        fetch(`/api/camps/severity/${currentCamp.campId}/${value}`, {method: 'PUT'})
+            .then(res => {
+                if (res.ok) {
+                    location.reload();
+                }
+            });
+    });
+
+    document.getElementById('requestForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!currentCamp) {
+            alert('Please create your camp first.');
+            return;
+        }
+
+        const requestData = {
+            reliefCamp: {campId: currentCamp.campId},
+            resourceType: document.getElementById('requestResourceType').value,
+            quantity: parseInt(document.getElementById('requestQuantity').value),
+            priorityLevel: parseInt(document.getElementById('requestPriority').value)
+        };
+
+        fetch('/api/requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(requestData)
+        })
+            .then(res => {
+                if (!res.ok) throw new Error('Failed');
+                return res.json();
+            })
+            .then(() => {
+                loadRequests(currentUser.userId, currentCamp.campId);
+                document.getElementById('requestPriority').value = '3';
+                document.getElementById('requestQuantity').value = '100';
+            })
+            .catch(() => {
+                alert('Unable to create request.');
+            });
+    });
+</script>
+
+</body>
+</html>
