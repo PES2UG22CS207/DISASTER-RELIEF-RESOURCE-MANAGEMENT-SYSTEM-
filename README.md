@@ -52,7 +52,7 @@ Update the database credentials in `src/main/resources/application.properties` i
 
 ```powershell
 git clone https://github.com/PES2UG22CS207/DISASTER-RELIEF-RESOURCE-MANAGEMENT-SYSTEM-.git
-cd relief-system
+cd DISASTER-RELIEF-RESOURCE-MANAGEMENT-SYSTEM-
 ./mvnw.cmd spring-boot:run
 ```
 
